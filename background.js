@@ -147,6 +147,7 @@ function onDebuggerEnabled(debuggeeId) {
   })
   .then(function(response) {
     console.log(response);
+    chrome.debugger.detach(debuggeeId, onDetach.bind(null, debuggeeId));
   });
 }
 
