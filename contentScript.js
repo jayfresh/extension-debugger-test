@@ -1,6 +1,4 @@
-var width = document.documentElement.scrollWidth;
-var height = document.documentElement.scrollHeight;
-console.log
+console.log('content script running');
 chrome.runtime.onMessage.addListener(
   function(request, sender, sendResponse) {
     console.log(sender.tab ?
@@ -8,6 +6,8 @@ chrome.runtime.onMessage.addListener(
                 "from the extension");
     console.log(request);
     if (request.type === "sizeRequest") {
+      var width = document.documentElement.scrollWidth;
+      var height = document.documentElement.scrollHeight;
       sendResponse({size: {
         width: width,
         height: height
@@ -21,9 +21,9 @@ chrome.runtime.onMessage.addListener(
       a.download = 'invoice.png'; // set the file name
       a.appendChild(document.createTextNode('click me to download screenshot of ' + window.location));
       document.body.appendChild(a);
-      alert('see console');
       console.log(a);
-      a.click(); //this is probably the key - simulatating a click on a download link
+      a.click(); // click the download link
+      a.parentElement.removeChild(a);
     }
   }
 );
