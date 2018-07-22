@@ -6,7 +6,8 @@
     "debugger",
     "activeTab",
     "identity",
-    "https://slack.com/*"
+    "https://slack.com/*",
+    "https://requestbin.fullcontact.com/*"
   ],
   "background": {
     "scripts": ["background.js"]

@@ -5,10 +5,13 @@
 // TODO: stop using pauses and use network detection or messaging with the content script
 // to tell when things have stopped loading
 // TODO: make the clicking more robust - use the content script?
-// TODO: make Message Button in Slack for requestee
+// TODO: store the auth token between loads
+// TODO: figure out how to switch on the client permission as well as the files:write:user permission - or at least monitor the RTM and be able to upload files (maybe you only need client?)
+// TODO: make Message Button / Interactive Component in Slack for requestee
+  // amazingly, Slack just bought this company that does something similar - https://missions.ai/
 
 // Promise wrappers for chrome APIs
-function fetch(url) {
+function get(url) {
   return new Promise(function(resolve, reject) {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
@@ -17,11 +20,84 @@ function fetch(url) {
         try {
           resolve(JSON.parse(xhr.responseText));
         } catch(ex) {
+          console.error('Problem with response', response, ex);
           reject(ex);
         }
       }
     }
     xhr.send();
+  });
+}
+function base64ToBlob(data, type) {
+    // convert base64 to raw binary data held in a string
+    // doesn't handle URLEncoded DataURIs - see SO answer #6850276 for code that does this
+    var byteString = atob(data);
+    // write the bytes of the string to an ArrayBuffer
+    var ab = new ArrayBuffer(byteString.length);
+    var ia = new Uint8Array(ab);
+    for (var i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+    }
+    // write the ArrayBuffer to a blob, and you're done
+    // return new Blob([ia], { type: type });
+    return new Blob([ia]);
+}
+function filePost(data) {
+  function encode_utf8(s) {
+    return unescape(encodeURIComponent(s));
+  }
+  return new Promise(function(resolve, reject) {
+    var xhr = new XMLHttpRequest();
+    var url = 'https://slack.com/api/files.upload';
+    // var url = 'https://requestbin.fullcontact.com/10vqpah1';
+    xhr.open('POST', url, true);
+    // xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    // xhr.setRequestHeader('Content-Type', 'multipart/form-data');
+    xhr.setRequestHeader('Authorization', 'Bearer ' + SLACK.access_token);
+    // TODO: set multipart file data
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState == 4) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch(ex) {
+          console.error('Problem with response', xhr, ex);
+          reject(ex);
+        }
+      }
+    }
+    // TODO: replace with real data
+    // data = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAa0lEQVR4AWMYTMAv3ne/bz8Dg+/8UH6sCnzqff/77mdgAJLv/eLxKgDD/V7yOBXAoE89AQW16/EoSLt/o/+/Aw4FQd/nrv+f8F8AzQ2p+Wn305YzMNQdf1n/3wCLL/4bAHV5AGmP/xx0jgIA/hdJeBPwghAAAAAASUVORK5CYII=';
+    // var byteCharacters = atob(data);
+    // var byteNumbers = new Array(byteCharacters.length);
+    // for (var i = 0; i < byteCharacters.length; i++) {
+    //     byteNumbers[i] = byteCharacters.charCodeAt(i);
+    // }
+    // var byteArray = new Uint8Array(byteNumbers);
+    // var blob = new Blob([byteArray], { type: 'image/png' });
+    // TODO: try this instead:
+    // - add data:image/png;base64, to front of imageData
+    // - then: fetch(imageData)
+    //          .then(res => res.blob())
+    //          .then(blob => console.log(blob));
+    var blob = base64ToBlob(data, 'image/png');
+    var formData = new FormData();
+    formData.append('channels', ['D1ENYA29G']);
+    var filename = 'test upload' + Date.now() + '.png';
+    formData.append('filename', filename);
+    formData.append('filetype', 'png');
+    formData.append('file', blob, filename);
+    // var postBody = {
+    //   // Jonathan's Slack ID is U050TMAF3
+    //   // Jonathan's IM channel is D1ENYA29G
+    //   channels: ['D1ENYA29G'],
+    //   filename: 'test upload ' + Date.now() + '.png',
+    //   filetype: 'png',
+    //   content: data // base64 encoded
+    // };
+    // postBody = Object.keys(postBody).map(key => key + '=' + postBody[key]);
+    // console.log('postBody', postBody);
+    console.log('formData', formData);
+    xhr.send(formData);
   });
 }
 function sendCommand(target, command, params) {
@@ -132,13 +208,14 @@ var SLACK = {
   AUTHORIZE_URL: 'https://slack.com/oauth/authorize',
   ACCESS_URL: 'https://slack.com/api/oauth.access',
   clientId: '5027724499.402338979777',
-  scope: 'identify,read,post,client',
+  // scope: 'identify,read,post,client',
+  scope: 'identify,files:write:user',
   redirectUri: `https://${CHROME_EXTENSION_ID}.chromiumapp.org`,
   buildAuthorizeUrl: ({ clientId, scope, redirectUri }) => `${SLACK.AUTHORIZE_URL}?client_id=${clientId}&scope=${scope}&redirect_uri=${redirectUri}`,
   buildAccessUrl: ({ clientId, clientSecret, redirectUri, code }) => `${SLACK.ACCESS_URL}?client_id=${clientId}&client_secret=${clientSecret}&redirect_uri=${redirectUri}&code=${code}`
 };
 // load secrets
-fetch(chrome.extension.getURL('config.json'))
+get(chrome.extension.getURL('config.json'))
 .then(function(config) {
   SLACK.clientSecret = config.SLACK.clientSecret;
 });
@@ -176,50 +253,60 @@ function onDebuggerEnabled(debuggeeId) {
       console.log('code', code);
       var accessUrl = SLACK.buildAccessUrl({ clientId, clientSecret, redirectUri, code });
       // Resolve with the access token, or reject on error
-      return fetch(accessUrl)
+      return get(accessUrl)
       .then(json => {
         SLACK.access_token = json.access_token;
         console.log('SLACK.access_token', SLACK.access_token);
       });
     });
   })
-  // .then(function() {
-  //   return wait(5000).then(function() { return clickSelector(debuggeeId, 'button#login'); });
-  // })
-  // .then(function() {
-  //   return wait(10000).then(function() { return clickSelector(debuggeeId, 'button.small.blue'); });
-  // })
-  // .then(function() {
-  //   return wait(10000).then(function() { return sendMessage(debuggeeId.tabId, {type: 'sizeRequest'}); });
-  // })
-  // .then(function(response) {
-  //   console.log('response', response);
-  //   var size = response.size;
-  //   return sendCommand(debuggeeId,
-  //     // could also printToPDF if this doesn't work?
-  //     'Page.captureScreenshot', {
-  //       clip: {
-  //         x: 0,
-  //         y: 0,
-  //         width: size.width,
-  //         height: size.height,
-  //         scale: 1
-  //       }
-  //     }
-  //   );
-  // })
-  // .then(function(response) {
-  //   var data = response.data;
-  //   console.log('response', response);
-  //   console.log(debuggeeId);
-  //   return sendMessage(debuggeeId.tabId, {
-  //     type: "imageData",
-  //     imageData: data
-  //   });
-  // })
+  .then(function() {
+    return wait(5000).then(function() { return clickSelector(debuggeeId, 'button#loginButton'); });
+  })
+  .then(function() {
+    return wait(10000).then(function() { return clickSelector(debuggeeId, 'button.small.blue'); });
+  })
+  .then(function() {
+    return wait(10000).then(function() { return sendMessage(debuggeeId.tabId, {type: 'sizeRequest'}); });
+  })
+  .then(function(response) {
+    console.log('response', response);
+    var size = response.size;
+    return sendCommand(debuggeeId,
+      // could also printToPDF if this doesn't work?
+      'Page.captureScreenshot', {
+        clip: {
+          x: 0,
+          y: 0,
+          width: size.width,
+          height: size.height,
+          scale: 1
+        }
+      }
+    );
+  })
+  .then(function(response) {
+    var data = response.data;
+    console.log('response', response);
+    console.log(debuggeeId);
+    return sendMessage(debuggeeId.tabId, {
+      type: "imageData",
+      imageData: data
+    })
+    .then(function() {
+      // Send to Slack
+      return filePost(data);
+    })
+    .then(function(response) {
+      console.log('image post response', response);
+    });
+  })
   .then(function(response) {
     console.log('complete', response);
     chrome.debugger.detach(debuggeeId, onDetach.bind(null, debuggeeId));
+  })
+  .catch(function(ex) {
+    console.log('General error', ex);
   });
 }
 
