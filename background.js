@@ -7,6 +7,22 @@
 // TODO: make the clicking more robust - use the content script?
 
 // Promise wrappers for chrome APIs
+function fetch(url) {
+  return new Promise(function(resolve, reject) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState == 4) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch(ex) {
+          reject(ex);
+        }
+      }
+    }
+    xhr.send();
+  });
+}
 function sendCommand(target, command, params) {
   return new Promise(function(resolve, reject) {
     chrome.debugger.sendCommand(target, command, params, function(response) {
@@ -24,6 +40,13 @@ function executeScript(tabId, target) {
 function sendMessage(tabId, message) {
   return new Promise(function(resolve, reject) {
     chrome.tabs.sendMessage(tabId, message, function(response) {
+      resolve(response);
+    });
+  });
+}
+function launchWebAuthFlow(options) {
+  return new Promise(function(resolve, reject) {
+    chrome.identity.launchWebAuthFlow(options, function(response) {
       resolve(response);
     });
   });
@@ -68,7 +91,6 @@ function clickSelector(target, selector) {
   });
 }
 
-
 var attachedTabs = {};
 var version = "1.0";
 
@@ -104,6 +126,22 @@ function onAttach(debuggeeId) {
       onDebuggerEnabled.bind(null, debuggeeId));
 }
 
+var CHROME_EXTENSION_ID = 'fodgacdkamnogglbgedijgabmcehimjb';
+var SLACK = {
+  AUTHORIZE_URL: 'https://slack.com/oauth/authorize',
+  ACCESS_URL: 'https://slack.com/api/oauth.access',
+  clientId: '5027724499.402338979777',
+  scope: 'identify,read,post,client',
+  redirectUri: `https://${CHROME_EXTENSION_ID}.chromiumapp.org`,
+  buildAuthorizeUrl: ({ clientId, scope, redirectUri }) => `${SLACK.AUTHORIZE_URL}?client_id=${clientId}&scope=${scope}&redirect_uri=${redirectUri}`,
+  buildAccessUrl: ({ clientId, clientSecret, redirectUri, code }) => `${SLACK.ACCESS_URL}?client_id=${clientId}&client_secret=${clientSecret}&redirect_uri=${redirectUri}&code=${code}`
+};
+// load secrets
+fetch(chrome.extension.getURL('config.json'))
+.then(function(config) {
+  SLACK.clientSecret = config.SLACK.clientSecret;
+});
+
 function onDebuggerEnabled(debuggeeId) {
   Promise.resolve()
   .then(function() {
@@ -111,42 +149,75 @@ function onDebuggerEnabled(debuggeeId) {
       url: 'https://www.paperspace.com/console/account/billing'
     });
   })
+  .then(function() {
+    var {
+      clientId,
+      clientSecret,
+      redirectUri,
+      scope,
+    } = SLACK;
+    return launchWebAuthFlow({
+      url: SLACK.buildAuthorizeUrl({ clientId, scope, redirectUri }),
+      interactive: true
+    })
+    .then(redirectUrl => {
+      console.log('redirectUrl', redirectUrl);
+      // Get the query params from the provided redirect URL
+      var query = redirectUrl.split('?')[1];
+      // Extract the access code from the query params
+      var code;
+      query.split('&').forEach(function(pair) {
+        var [key, value] = pair.split('=');
+        if (key === 'code') {
+          code = decodeURIComponent(value);
+        }
+      });
+      console.log('code', code);
+      var accessUrl = SLACK.buildAccessUrl({ clientId, clientSecret, redirectUri, code });
+      // Resolve with the access token, or reject on error
+      return fetch(accessUrl)
+      .then(json => {
+        SLACK.access_token = json.access_token;
+        console.log('SLACK.access_token', SLACK.access_token);
+      });
+    });
+  })
   // .then(function() {
   //   return wait(5000).then(function() { return clickSelector(debuggeeId, 'button#login'); });
   // })
-  .then(function() {
-    return wait(10000).then(function() { return clickSelector(debuggeeId, 'button.small.blue'); });
-  })
-  .then(function() {
-    return wait(10000).then(function() { return sendMessage(debuggeeId.tabId, {type: 'sizeRequest'}); });
-  })
+  // .then(function() {
+  //   return wait(10000).then(function() { return clickSelector(debuggeeId, 'button.small.blue'); });
+  // })
+  // .then(function() {
+  //   return wait(10000).then(function() { return sendMessage(debuggeeId.tabId, {type: 'sizeRequest'}); });
+  // })
+  // .then(function(response) {
+  //   console.log('response', response);
+  //   var size = response.size;
+  //   return sendCommand(debuggeeId,
+  //     // could also printToPDF if this doesn't work?
+  //     'Page.captureScreenshot', {
+  //       clip: {
+  //         x: 0,
+  //         y: 0,
+  //         width: size.width,
+  //         height: size.height,
+  //         scale: 1
+  //       }
+  //     }
+  //   );
+  // })
+  // .then(function(response) {
+  //   var data = response.data;
+  //   console.log('response', response);
+  //   console.log(debuggeeId);
+  //   return sendMessage(debuggeeId.tabId, {
+  //     type: "imageData",
+  //     imageData: data
+  //   });
+  // })
   .then(function(response) {
-    console.log('response', response);
-    var size = response.size;
-    return sendCommand(debuggeeId,
-      // could also printToPDF if this doesn't work?
-      'Page.captureScreenshot', {
-        clip: {
-          x: 0,
-          y: 0,
-          width: size.width,
-          height: size.height,
-          scale: 1
-        }
-      }
-    );
-  })
-  .then(function(response) {
-    var data = response.data;
-    console.log('response', response);
-    console.log(debuggeeId);
-    return sendMessage(debuggeeId.tabId, {
-      type: "imageData",
-      imageData: data
-    });
-  })
-  .then(function(response) {
-    console.log(response);
+    console.log('complete', response);
     chrome.debugger.detach(debuggeeId, onDetach.bind(null, debuggeeId));
   });
 }

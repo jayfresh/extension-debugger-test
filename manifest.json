@@ -4,7 +4,9 @@
   "version": "0.7",
   "permissions": [
     "debugger",
-    "activeTab"
+    "activeTab",
+    "identity",
+    "https://slack.com/*"
   ],
   "background": {
     "scripts": ["background.js"]
@@ -19,5 +21,6 @@
     "default_icon": "debuggerPause.png",
     "default_title": "Pause JavaScript"
   },
-  "manifest_version": 2
+  "manifest_version": 2,
+  "key":  "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAi+DASE9CPxUCYlDMCLq4o9yquV1ZwQqc6yuRRG7cY6hHYbPOdVRKcGSBNjUvid+QlQm6uGcKhEdo5Cdr6pMt5ba5JRxGb5XVofOwyxs/Yh5VwCRUSYieZyulTWj0ZGNjmaOw9toXA+hvRy9BQKqvv1fYxWEaG2rBG4SyRJZo5jkYQlQySbcYsXKOiIU+yZoYkcKDRQmEZgq9V3LhGaLYWpboOo4kVWiolGc0ctEB54kqL13ozZTS0pwmH1ZBPEWvfww+DRxme6obFd2U8+KieqEYeTr/HFL7Q91PQwodg2seE5AghYwfzvlnMqmzt8qXD4ekCImCzM3YOKrdlztnXwIDAQAB"
 }
