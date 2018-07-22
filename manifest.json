@@ -1,6 +1,6 @@
 {
-  "name": "JavaScript pause/resume",
-  "description": "Pauses / resumes JavaScript execution",
+  "name": "Requester",
+  "description": "Requests things in Slack",
   "version": "0.7",
   "permissions": [
     "debugger",

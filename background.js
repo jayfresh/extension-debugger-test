@@ -5,6 +5,7 @@
 // TODO: stop using pauses and use network detection or messaging with the content script
 // to tell when things have stopped loading
 // TODO: make the clicking more robust - use the content script?
+// TODO: make Message Button in Slack for requestee
 
 // Promise wrappers for chrome APIs
 function fetch(url) {
