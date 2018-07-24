@@ -42,10 +42,54 @@ function base64ToBlob(data, type) {
     // return new Blob([ia], { type: type });
     return new Blob([ia]);
 }
-function filePost(data) {
-  function encode_utf8(s) {
-    return unescape(encodeURIComponent(s));
-  }
+function slackGet(endpoint) {
+  return new Promise(function(resolve, reject) {
+    var xhr = new XMLHttpRequest();
+    var url = 'https://slack.com/api/' + endpoint;
+    xhr.open('GET', url, true);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.setRequestHeader('Authorization', 'Bearer ' + SLACK.access_token);
+    // TODO: set multipart file data
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState == 4) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch(ex) {
+          console.error('Problem with response', xhr, ex);
+          reject(ex);
+        }
+      }
+    };
+    xhr.send();
+  });
+}
+function slackMessagePost(channel, msg) {
+  return new Promise(function(resolve, reject) {
+    var xhr = new XMLHttpRequest();
+    var url = 'https://slack.com/api/chat.postMessage';
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-type', 'application/json');
+    xhr.setRequestHeader('Authorization', 'Bearer ' + SLACK.access_token);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState == 4) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch(ex) {
+          console.error('Problem with response', xhr, ex);
+          reject(ex);
+        }
+      }
+    };
+    var postBody = {
+      channel: channel,
+      text: msg,
+      as_user: false
+    };
+    console.log('postBody', postBody);
+    xhr.send(JSON.stringify(postBody));
+  });
+}
+function slackFilePost(data) {
   return new Promise(function(resolve, reject) {
     var xhr = new XMLHttpRequest();
     var url = 'https://slack.com/api/files.upload';
@@ -64,7 +108,7 @@ function filePost(data) {
           reject(ex);
         }
       }
-    }
+    };
     // TODO: replace with real data
     // data = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAa0lEQVR4AWMYTMAv3ne/bz8Dg+/8UH6sCnzqff/77mdgAJLv/eLxKgDD/V7yOBXAoE89AQW16/EoSLt/o/+/Aw4FQd/nrv+f8F8AzQ2p+Wn305YzMNQdf1n/3wCLL/4bAHV5AGmP/xx0jgIA/hdJeBPwghAAAAAASUVORK5CYII=';
     // var byteCharacters = atob(data);
@@ -168,6 +212,54 @@ function clickSelector(target, selector) {
   });
 }
 
+var socket = {
+  ws: null,
+  open: function(url) {
+		socket.ws = new WebSocket(url);
+		socket.ws.onopen = socket.onOpen;
+		socket.ws.onclose = socket.onClose;
+		socket.ws.onmessage = socket.onMessage;
+		socket.ws.onerror = socket.onError;
+	},
+	close: function() {
+		if (socket.ws) {
+			console.log('CLOSING ...');
+			socket.ws.close();
+		}
+	},
+	onOpen: function() {
+		console.log('OPENED', socket.ws);
+    window.setTimeout(function() {
+      slackMessagePost('D1ENYA29G', 'hello there')
+      .then(console.log)
+      .catch(console.log);
+    }, 2000);
+	},
+	onClose: function() {
+		console.log('CLOSED');
+		socket.ws = null;
+	},
+	onMessage: function(event) {
+		var data = event.data;
+		console.log('SOCKET event', event);
+    try {
+      var data = JSON.parse(event.data);
+      var text = data.text;
+      var channel = data.channel;
+      if (text.toLowerCase().indexOf('paperspace invoice') !== -1) {
+        slackMessagePost(channel, 'I can help with that...')
+        .then(console.log)
+        .catch(console.log);
+      }
+    } catch(ex) {
+      // do nothing
+    }
+	},
+	onError: function(event) {
+		console.error(event.data);
+	}
+};
+
 var attachedTabs = {};
 var version = "1.0";
 
@@ -175,6 +267,15 @@ chrome.debugger.onEvent.addListener(onEvent);
 chrome.debugger.onDetach.addListener(onDetach);
 
 chrome.browserAction.onClicked.addListener(function(tab) {
+  setupSlack()
+  .then(() => slackGet('rtm.connect'))
+  .then(response => {
+    console.log(response);
+    socket.open(response.url);
+  })
+  .catch(err => console.error(err));
+  return;
+  
   var tabId = tab.id;
   var debuggeeId = {tabId:tabId};
   console.log(debuggeeId);
@@ -209,7 +310,8 @@ var SLACK = {
   ACCESS_URL: 'https://slack.com/api/oauth.access',
   clientId: '5027724499.402338979777',
   // scope: 'identify,read,post,client',
-  scope: 'identify,files:write:user',
+  // scope: 'identify,files:write:user',
+  scope: 'identify,client,post',
   redirectUri: `https://${CHROME_EXTENSION_ID}.chromiumapp.org`,
   buildAuthorizeUrl: ({ clientId, scope, redirectUri }) => `${SLACK.AUTHORIZE_URL}?client_id=${clientId}&scope=${scope}&redirect_uri=${redirectUri}`,
   buildAccessUrl: ({ clientId, clientSecret, redirectUri, code }) => `${SLACK.ACCESS_URL}?client_id=${clientId}&client_secret=${clientSecret}&redirect_uri=${redirectUri}&code=${code}`
@@ -220,6 +322,40 @@ get(chrome.extension.getURL('config.json'))
   SLACK.clientSecret = config.SLACK.clientSecret;
 });
 
+function setupSlack() {
+  var {
+    clientId,
+    clientSecret,
+    redirectUri,
+    scope,
+  } = SLACK;
+  return launchWebAuthFlow({
+    url: SLACK.buildAuthorizeUrl({ clientId, scope, redirectUri }),
+    interactive: true
+  })
+  .then(redirectUrl => {
+    console.log('redirectUrl', redirectUrl);
+    // Get the query params from the provided redirect URL
+    var query = redirectUrl.split('?')[1];
+    // Extract the access code from the query params
+    var code;
+    query.split('&').forEach(function(pair) {
+      var [key, value] = pair.split('=');
+      if (key === 'code') {
+        code = decodeURIComponent(value);
+      }
+    });
+    console.log('code', code);
+    var accessUrl = SLACK.buildAccessUrl({ clientId, clientSecret, redirectUri, code });
+    // Resolve with the access token, or reject on error
+    return get(accessUrl)
+    .then(json => {
+      SLACK.access_token = json.access_token;
+      console.log('SLACK.access_token', SLACK.access_token);
+    });
+  });
+}
+
 function onDebuggerEnabled(debuggeeId) {
   Promise.resolve()
   .then(function() {
@@ -227,39 +363,9 @@ function onDebuggerEnabled(debuggeeId) {
       url: 'https://www.paperspace.com/console/account/billing'
     });
   })
-  .then(function() {
-    var {
-      clientId,
-      clientSecret,
-      redirectUri,
-      scope,
-    } = SLACK;
-    return launchWebAuthFlow({
-      url: SLACK.buildAuthorizeUrl({ clientId, scope, redirectUri }),
-      interactive: true
-    })
-    .then(redirectUrl => {
-      console.log('redirectUrl', redirectUrl);
-      // Get the query params from the provided redirect URL
-      var query = redirectUrl.split('?')[1];
-      // Extract the access code from the query params
-      var code;
-      query.split('&').forEach(function(pair) {
-        var [key, value] = pair.split('=');
-        if (key === 'code') {
-          code = decodeURIComponent(value);
-        }
-      });
-      console.log('code', code);
-      var accessUrl = SLACK.buildAccessUrl({ clientId, clientSecret, redirectUri, code });
-      // Resolve with the access token, or reject on error
-      return get(accessUrl)
-      .then(json => {
-        SLACK.access_token = json.access_token;
-        console.log('SLACK.access_token', SLACK.access_token);
-      });
-    });
-  })
+  // .then(function() {
+  //   return setupSlack();
+  // })
   .then(function() {
     return wait(5000).then(function() { return clickSelector(debuggeeId, 'button#loginButton'); });
   })
@@ -295,7 +401,7 @@ function onDebuggerEnabled(debuggeeId) {
     })
     .then(function() {
       // Send to Slack
-      return filePost(data);
+      return slackFilePost(data);
     })
     .then(function(response) {
       console.log('image post response', response);
