@@ -248,7 +248,7 @@ var socket = {
       var channel = data.channel;
       if (text.toLowerCase().indexOf('paperspace invoice') !== -1) {
         slackMessagePost(channel, 'I can help with that...')
-        .then(console.log)
+        .then(connectDebugger)
         .catch(console.log);
       }
     } catch(ex) {
@@ -262,11 +262,13 @@ var socket = {
 
 var attachedTabs = {};
 var version = "1.0";
+var clickedTab;
 
 chrome.debugger.onEvent.addListener(onEvent);
 chrome.debugger.onDetach.addListener(onDetach);
 
 chrome.browserAction.onClicked.addListener(function(tab) {
+  clickedTab = tab; // TODO: make use the active tab instead
   setupSlack()
   .then(() => slackGet('rtm.connect'))
   .then(response => {
@@ -275,8 +277,10 @@ chrome.browserAction.onClicked.addListener(function(tab) {
   })
   .catch(err => console.error(err));
   return;
+});
   
-  var tabId = tab.id;
+function connectDebugger() {
+  var tabId = clickedTab.id;
   var debuggeeId = {tabId:tabId};
   console.log(debuggeeId);
 
@@ -287,7 +291,7 @@ chrome.browserAction.onClicked.addListener(function(tab) {
     chrome.debugger.attach(debuggeeId, version, onAttach.bind(null, debuggeeId));
   else if (attachedTabs[tabId])
     chrome.debugger.detach(debuggeeId, onDetach.bind(null, debuggeeId));
-});
+}
 
 function onAttach(debuggeeId) {
   if (chrome.runtime.lastError) {
