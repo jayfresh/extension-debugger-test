@@ -7,6 +7,7 @@
 // TODO: make the clicking more robust - use the content script?
 // TODO: store the auth token between loads
 // TODO: figure out how to switch on the client permission as well as the files:write:user permission - or at least monitor the RTM and be able to upload files (maybe you only need client?)
+  // although this looks to work with client,post,identity permissions (i.e. files works with post)
 // TODO: make Message Button / Interactive Component in Slack for requestee
   // amazingly, Slack just bought this company that does something similar - https://missions.ai/
 
